@@ -115,6 +115,22 @@
     letter-spacing: .08em;
     color: var(--muted);
     padding-top: 2px;
+    cursor: pointer;
+  }
+  h1:active { opacity: .6; }
+  .title-edit {
+    font: inherit;
+    font-size: 17px;
+    font-weight: 400;
+    letter-spacing: .08em;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid var(--line);
+    padding: 2px 0 0;
+    margin-top: 2px;
+    width: 150px;
+    outline: none;
   }
   .corner { display: flex; align-items: flex-start; gap: 12px; }
   .datebox {
@@ -386,7 +402,7 @@
 <script>
 (() => {
   const SHEETS = ["sparks", "lightning", "thunderstorm"];
-  const NAMES = { sparks: "Sparks", lightning: "Lightning", thunderstorm: "Thunderstorm" };
+  const DEFAULT_NAMES = { sparks: "Sparks", lightning: "Lightning", thunderstorm: "Thunderstorm" };
   const N = 10;
   const KEY = "sparkies-v1";
 
@@ -399,6 +415,8 @@
   try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch { state = {}; }
   for (const s of SHEETS) if (!state[s]) state[s] = blankSheet();
   if (!SHEETS.includes(state.current)) state.current = "sparks";
+  if (!state.names) state.names = {};
+  for (const s of SHEETS) if (!state.names[s]) state.names[s] = DEFAULT_NAMES[s];
 
   const save = () => localStorage.setItem(KEY, JSON.stringify(state));
 
@@ -422,7 +440,7 @@
     const sheet = state[state.current];
     const hasContent = sheet.tasks.some((t) => t.t) || sheet.dots.some(Boolean);
     if (!hasContent) return;
-    if (!confirm("Clear all " + NAMES[state.current] + " tasks?")) return;
+    if (!confirm("Clear all " + state.names[state.current] + " tasks?")) return;
     state[state.current] = blankSheet();
     save();
     render();
@@ -536,6 +554,72 @@
     }, 200);
   }
 
+  // ---------- Title: tap clears completed tasks, long-press renames ----------
+  const titleEl = document.getElementById("sheetName");
+
+  function clearCompleted() {
+    const sheet = state[state.current];
+    let changed = false;
+    sheet.tasks.forEach((t) => {
+      if (t.d) { t.t = ""; t.d = false; changed = true; }
+    });
+    if (!changed) return;
+    save();
+    render();
+  }
+
+  function startRenaming() {
+    titleEl.style.display = "none";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "title-edit";
+    input.maxLength = 16;
+    input.value = state.names[state.current];
+    titleEl.insertAdjacentElement("afterend", input);
+    input.focus();
+    input.select();
+
+    function finish(shouldSave) {
+      input.removeEventListener("blur", onBlur);
+      const val = input.value.trim();
+      if (shouldSave && val) {
+        state.names[state.current] = val;
+        save();
+      }
+      input.remove();
+      titleEl.style.display = "";
+      render();
+    }
+    function onBlur() { finish(true); }
+    input.addEventListener("blur", onBlur);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") finish(false);
+    });
+  }
+
+  let titleTimer = null, titleDownX = 0, titleDownY = 0, titleLongPressed = false;
+  titleEl.addEventListener("pointerdown", (e) => {
+    titleDownX = e.clientX;
+    titleDownY = e.clientY;
+    titleLongPressed = false;
+    clearTimeout(titleTimer);
+    titleTimer = setTimeout(() => {
+      titleLongPressed = true;
+      startRenaming();
+    }, 500);
+  });
+  titleEl.addEventListener("pointermove", (e) => {
+    if (Math.abs(e.clientX - titleDownX) > 10 || Math.abs(e.clientY - titleDownY) > 10) {
+      clearTimeout(titleTimer);
+    }
+  });
+  titleEl.addEventListener("pointerup", () => {
+    clearTimeout(titleTimer);
+    if (!titleLongPressed) clearCompleted();
+  });
+  titleEl.addEventListener("pointercancel", () => clearTimeout(titleTimer));
+
   // ---------- Pager: dots + swipe between sheets ----------
   const card = document.querySelector(".card");
   const pagerEls = [...document.querySelectorAll(".pdot")];
@@ -602,7 +686,7 @@
     document.body.classList.add("switching");
     requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("switching")));
     document.body.dataset.sheet = state.current;
-    document.getElementById("sheetName").textContent = NAMES[state.current];
+    document.getElementById("sheetName").textContent = state.names[state.current];
     renderDateBox();
     const idx = SHEETS.indexOf(state.current);
     rowEls.forEach((row, i) => {
@@ -612,10 +696,13 @@
       row.classList.toggle("done", task.d);
       row.classList.toggle("has-text", task.t.length > 0);
       const promoteBtn = row.querySelector(".promote");
-      promoteBtn.title = idx > 0 ? "Send to " + NAMES[SHEETS[idx - 1]] : "";
+      promoteBtn.title = idx > 0 ? "Send to " + state.names[SHEETS[idx - 1]] : "";
     });
     dotEls.forEach((dot, i) => dot.classList.toggle("on", sheet.dots[i]));
-    pagerEls.forEach((dot) => dot.classList.toggle("active", dot.dataset.sheet === state.current));
+    pagerEls.forEach((dot) => {
+      dot.classList.toggle("active", dot.dataset.sheet === state.current);
+      dot.setAttribute("aria-label", state.names[dot.dataset.sheet]);
+    });
   }
 
   render();
