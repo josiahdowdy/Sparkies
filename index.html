@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efeadd">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Sparkies</title>
+<style>
+  :root {
+    --bg: #efeadd;
+    --gold: #f7c948;
+  }
+  /* Sheet palettes — each one a step darker in value */
+  body[data-sheet="sparks"] {
+    --paper: #fcfbf6; --line: #d9d5c7; --ink: #3d3c36; --muted: #97948a;
+  }
+  body[data-sheet="lightning"] {
+    --paper: #efe8d5; --line: #cdc3a8; --ink: #3f3a2c; --muted: #948d78;
+  }
+  body[data-sheet="thunderstorm"] {
+    --paper: #b99e75; --line: #a3885c; --ink: #453922; --muted: #7d6a48;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    width: 100%;
+    height: 100%;
+  }
+  body {
+    background: var(--bg);
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    padding: 10px 10px 4px;
+    gap: 6px;
+    height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  /* ---------- Card ---------- */
+  .card {
+    flex: 1;
+    min-height: 0;
+    background: var(--paper);
+    border-radius: 20px;
+    box-shadow: 0 2px 6px rgba(60, 50, 30, .12), 0 12px 28px rgba(60, 50, 30, .10);
+    padding: 20px 22px 22px;
+    display: flex;
+    flex-direction: column;
+    transition: background .35s ease;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 6px;
+  }
+  h1 {
+    font-size: 17px;
+    font-weight: 400;
+    letter-spacing: .08em;
+    color: var(--muted);
+    padding-top: 2px;
+  }
+  .corner { display: flex; align-items: flex-start; gap: 12px; }
+  .datebox {
+    border-bottom: 1.5px solid var(--line);
+    min-width: 86px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: .06em;
+    padding: 6px 4px 3px;
+  }
+  .daydots { display: flex; flex-direction: column; gap: 5px; padding-top: 1px; }
+  .daydots .dot {
+    width: 11px; height: 11px;
+    border: 1.5px solid var(--muted);
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+    transition: background .15s ease;
+  }
+  .daydots .dot.on { background: var(--muted); }
+
+  /* ---------- Task rows ---------- */
+  .rows {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .row {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    padding-bottom: 2px;
+  }
+  .signal {
+    flex: none;
+    width: 22px; height: 22px;
+    margin-bottom: 4px;
+    border: 1.5px solid var(--muted);
+    border-radius: 50%;
+    background: transparent;
+    position: relative;
+    cursor: pointer;
+    transition: background .2s ease;
+  }
+  .signal::before {
+    content: "";
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 1.5px;
+    margin-left: -0.75px;
+    background: var(--muted);
+  }
+  .row.done .signal { background: var(--muted); }
+  .row.done .signal::before { display: none; }
+
+  .line {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    border-bottom: 1.5px solid var(--line);
+  }
+  .line input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    font: inherit;
+    font-size: 16px;
+    color: var(--ink);
+    padding: 4px 2px 5px;
+    user-select: text;
+    transition: color .3s ease;
+  }
+  .row.done input { color: var(--muted); }
+
+  /* strike-through line the bolt leaves behind */
+  .strike {
+    position: absolute;
+    left: 0; top: 50%;
+    height: 2px;
+    width: 0;
+    background: var(--ink);
+    opacity: .65;
+    pointer-events: none;
+  }
+  .row.done .strike { width: 100%; }
+  .row.zap .strike { animation: grow .45s ease-in forwards; }
+  @keyframes grow { from { width: 0; } to { width: 100%; } }
+
+  /* the lightning bolt itself */
+  .bolt {
+    position: absolute;
+    left: 0; top: 50%;
+    width: 26px; height: 26px;
+    transform: translate(-50%, -55%) rotate(14deg);
+    fill: var(--gold);
+    filter: drop-shadow(0 0 5px rgba(255, 214, 90, .95)) drop-shadow(0 0 14px rgba(255, 190, 40, .55));
+    opacity: 0;
+    pointer-events: none;
+  }
+  .row.zap .bolt { animation: zip .45s ease-in forwards; }
+  @keyframes zip {
+    0%   { left: 0%;   opacity: 0; }
+    8%   { opacity: 1; }
+    55%  { opacity: 1; }
+    100% { left: 100%; opacity: 0; }
+  }
+  .row.zap .line { animation: flash .45s ease-out; }
+  @keyframes flash {
+    0%   { background: transparent; }
+    35%  { background: rgba(255, 216, 90, .28); }
+    100% { background: transparent; }
+  }
+
+  /* ---------- Tabs ---------- */
+  .tabs {
+    flex: none;
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    padding: 2px 0 6px;
+  }
+  .tabs button {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: .05em;
+    color: #a09a89;
+    padding: 7px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .tabs button.active { color: #4a463c; background: rgba(80, 70, 45, .08); }
+  .tabs .swatch {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(80, 70, 45, .25);
+  }
+  .tabs [data-sheet="sparks"] .swatch { background: #fcfbf6; }
+  .tabs [data-sheet="lightning"] .swatch { background: #efe8d5; }
+  .tabs [data-sheet="thunderstorm"] .swatch { background: #b99e75; }
+
+  /* snap signals/dots instantly when switching sheets (paper still cross-fades) */
+  body.switching .signal,
+  body.switching .dot { transition: none; }
+</style>
+</head>
+<body data-sheet="sparks">
+
+  <main class="card">
+    <header>
+      <h1 id="sheetName">Sparks</h1>
+      <div class="corner">
+        <div class="datebox" id="dateBox"></div>
+        <div class="daydots">
+          <button class="dot" data-dot="0" title="Morning" aria-label="Morning"></button>
+          <button class="dot" data-dot="1" title="Afternoon" aria-label="Afternoon"></button>
+          <button class="dot" data-dot="2" title="Evening" aria-label="Evening"></button>
+        </div>
+      </div>
+    </header>
+    <div class="rows" id="rows"></div>
+  </main>
+
+  <nav class="tabs">
+    <button data-sheet="sparks"><span class="swatch"></span>Sparks</button>
+    <button data-sheet="lightning"><span class="swatch"></span>Lightning</button>
+    <button data-sheet="thunderstorm"><span class="swatch"></span>Thunderstorm</button>
+  </nav>
+
+<script>
+(() => {
+  const SHEETS = ["sparks", "lightning", "thunderstorm"];
+  const NAMES = { sparks: "Sparks", lightning: "Lightning", thunderstorm: "Thunderstorm" };
+  const N = 10;
+  const KEY = "sparkies-v1";
+
+  const blankSheet = () => ({
+    tasks: Array.from({ length: N }, () => ({ t: "", d: false })),
+    dots: [false, false, false],
+  });
+
+  let state;
+  try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch { state = {}; }
+  for (const s of SHEETS) if (!state[s]) state[s] = blankSheet();
+  if (!SHEETS.includes(state.current)) state.current = "sparks";
+
+  const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+
+  // date, top right
+  document.getElementById("dateBox").textContent =
+    new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  const rowsEl = document.getElementById("rows");
+  const rowEls = [];
+
+  for (let i = 0; i < N; i++) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML =
+      '<button class="signal" aria-label="Complete task"></button>' +
+      '<div class="line">' +
+        '<input type="text" maxlength="25" autocomplete="off" autocapitalize="off" spellcheck="false">' +
+        '<div class="strike"></div>' +
+        '<svg class="bolt" viewBox="0 0 24 24"><path d="M13 1 3.5 13.5H10L8.5 23 19 10.5h-6.5L13 1z"/></svg>' +
+      '</div>';
+    rowsEl.appendChild(row);
+    rowEls.push(row);
+
+    const input = row.querySelector("input");
+    input.addEventListener("input", () => {
+      state[state.current].tasks[i].t = input.value;
+      save();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && i < N - 1) rowEls[i + 1].querySelector("input").focus();
+    });
+
+    row.querySelector(".signal").addEventListener("click", () => {
+      const task = state[state.current].tasks[i];
+      if (!task.d) {
+        task.d = true;
+        save();
+        row.classList.add("zap");
+        setTimeout(() => { row.classList.remove("zap"); row.classList.add("done"); }, 460);
+      } else {
+        task.d = false;
+        save();
+        row.classList.remove("done", "zap");
+      }
+    });
+  }
+
+  const dotEls = [...document.querySelectorAll(".daydots .dot")];
+  dotEls.forEach((dot, i) => {
+    dot.addEventListener("click", () => {
+      const dots = state[state.current].dots;
+      dots[i] = !dots[i];
+      save();
+      dot.classList.toggle("on", dots[i]);
+    });
+  });
+
+  const tabEls = [...document.querySelectorAll(".tabs button")];
+  tabEls.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      state.current = tab.dataset.sheet;
+      save();
+      render();
+    });
+  });
+
+  function render() {
+    const sheet = state[state.current];
+    document.body.classList.add("switching");
+    requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("switching")));
+    document.body.dataset.sheet = state.current;
+    document.getElementById("sheetName").textContent = NAMES[state.current];
+    rowEls.forEach((row, i) => {
+      const task = sheet.tasks[i];
+      row.querySelector("input").value = task.t;
+      row.classList.remove("zap");
+      row.classList.toggle("done", task.d);
+    });
+    dotEls.forEach((dot, i) => dot.classList.toggle("on", sheet.dots[i]));
+    tabEls.forEach((tab) => tab.classList.toggle("active", tab.dataset.sheet === state.current));
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
