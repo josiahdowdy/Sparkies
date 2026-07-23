@@ -55,6 +55,7 @@
     display: flex;
     flex-direction: column;
     transition: background .35s ease;
+    touch-action: none;
   }
 
   header {
@@ -89,13 +90,55 @@
   body[data-sheet="sparks"] .newday { display: inline-flex; }
   .corner { display: flex; align-items: flex-start; gap: 12px; }
   .datebox {
+    border: none;
     border-bottom: 1.5px solid var(--line);
+    background: transparent;
     min-width: 86px;
     text-align: center;
+    font: inherit;
     font-size: 13px;
     color: var(--muted);
     letter-spacing: .06em;
     padding: 6px 4px 3px;
+    cursor: pointer;
+  }
+  .datebox:active { opacity: .6; }
+
+  /* Thunderstorm: an infinity symbol with a light orbiting it forever */
+  .infinity-wrap {
+    position: relative;
+    display: block;
+    width: 34px;
+    height: 18px;
+    margin: 0 auto;
+  }
+  .inf-symbol {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+  }
+  .glow-dot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fffbe6, var(--gold) 60%, transparent 80%);
+    box-shadow: 0 0 6px 2px rgba(247, 201, 72, .85);
+    offset-path: path("M17 9 C17 3.5 12 3.5 8.5 9 C5 14.5 12 14.5 17 9 C17 3.5 24 3.5 25.5 9 C27 14.5 17 14.5 17 9 Z");
+    offset-rotate: 0deg;
+    animation: orbitFlow 3.2s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes orbitFlow {
+    from { offset-distance: 0%; }
+    to { offset-distance: 100%; }
   }
   .daydots { display: flex; flex-direction: column; gap: 5px; padding-top: 1px; }
   .daydots .dot {
@@ -216,11 +259,15 @@
     100% { background: transparent; }
   }
 
-  /* promote-away when a task is sent up a sheet */
+  /* promote/demote-away when a task is sent to another sheet */
   @keyframes promoteOut {
     to { opacity: 0; transform: translateX(18px); }
   }
+  @keyframes demoteOut {
+    to { opacity: 0; transform: translateX(-18px); }
+  }
   .row.promoting { animation: promoteOut .2s ease-in forwards; }
+  .row.demoting { animation: demoteOut .2s ease-in forwards; }
 
   /* ---------- Promote control ---------- */
   .promote {
@@ -285,7 +332,7 @@
         </button>
       </div>
       <div class="corner">
-        <div class="datebox" id="dateBox"></div>
+        <button class="datebox" id="dateBox" type="button" aria-label="Clear this sheet's tasks"></button>
         <div class="daydots">
           <button class="dot" data-dot="0" title="Morning" aria-label="Morning"></button>
           <button class="dot" data-dot="1" title="Afternoon" aria-label="Afternoon"></button>
@@ -321,9 +368,31 @@
 
   const save = () => localStorage.setItem(KEY, JSON.stringify(state));
 
-  // date, top right
-  document.getElementById("dateBox").textContent =
-    new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  // Top-right date box: a plain date on Sparks, month + week-of-month on
+  // Lightning, and an animated infinity symbol on Thunderstorm (someday
+  // has no deadline). Tapping it clears the sheet you're looking at.
+  const dateBoxEl = document.getElementById("dateBox");
+  function renderDateBox() {
+    const now = new Date();
+    if (state.current === "thunderstorm") {
+      dateBoxEl.innerHTML =
+        '<span class="infinity-wrap"><span class="inf-symbol">♾️</span><span class="glow-dot"></span></span>';
+    } else if (state.current === "lightning") {
+      const week = Math.ceil(now.getDate() / 7);
+      dateBoxEl.textContent = now.toLocaleDateString("en-US", { month: "short" }) + " Wk " + week;
+    } else {
+      dateBoxEl.textContent = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    }
+  }
+  dateBoxEl.addEventListener("click", () => {
+    const sheet = state[state.current];
+    const hasContent = sheet.tasks.some((t) => t.t) || sheet.dots.some(Boolean);
+    if (!hasContent) return;
+    if (!confirm("Clear all " + NAMES[state.current] + " tasks?")) return;
+    state[state.current] = blankSheet();
+    save();
+    render();
+  });
 
   const rowsEl = document.getElementById("rows");
   const rowEls = [];
@@ -407,6 +476,32 @@
     }, 200);
   }
 
+  // ---------- Demote a task down to the next heavier sheet ----------
+  function demoteTask(i) {
+    const idx = SHEETS.indexOf(state.current);
+    if (idx >= SHEETS.length - 1) return; // Thunderstorm is already the bottom of the chain
+    const targetKey = SHEETS[idx + 1];
+    const target = state[targetKey];
+    const slot = target.tasks.findIndex((t) => t.t === "");
+    const row = rowEls[i];
+    const task = state[state.current].tasks[i];
+    if (!task.t) return;
+    if (slot === -1) {
+      row.classList.remove("shake");
+      void row.offsetWidth;
+      row.classList.add("shake");
+      return;
+    }
+    row.classList.add("demoting");
+    setTimeout(() => {
+      target.tasks[slot] = { t: task.t, d: false };
+      task.t = "";
+      task.d = false;
+      save();
+      render();
+    }, 200);
+  }
+
   // ---------- New day: clear Sparks ----------
   document.getElementById("newDayBtn").addEventListener("click", () => {
     if (!confirm("Start a new day? This clears all Sparks tasks.")) return;
@@ -434,12 +529,29 @@
     dot.addEventListener("click", () => goToSheet(dot.dataset.sheet));
   });
 
-  let swipeX = null, swipeY = null, swiping = false;
+  // Swiping an empty row (or the header/margins) pages between sheets.
+  // Swiping directly on a task that has text promotes (swipe right) or
+  // demotes (swipe left) that task instead.
+  let swipeX = null, swipeY = null, swiping = false, swipeRow = null, swipeCommitted = false;
   card.addEventListener("pointerdown", (e) => {
     if (e.target.closest("button")) return;
     swipeX = e.clientX;
     swipeY = e.clientY;
     swiping = true;
+    swipeCommitted = false;
+    const rowEl = e.target.closest(".row");
+    swipeRow = rowEl && rowEl.classList.contains("has-text") ? rowEl : null;
+  });
+  card.addEventListener("pointermove", (e) => {
+    if (!swiping) return;
+    const dx = e.clientX - swipeX;
+    const dy = e.clientY - swipeY;
+    // Once a horizontal drag is clearly underway, stop the browser from
+    // treating it as native text selection/caret dragging inside the input.
+    if (!swipeCommitted && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      swipeCommitted = true;
+    }
+    if (swipeCommitted) e.preventDefault();
   });
   card.addEventListener("pointerup", (e) => {
     if (!swiping) return;
@@ -447,11 +559,17 @@
     const dx = e.clientX - swipeX;
     const dy = e.clientY - swipeY;
     if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (swipeRow) {
+      const i = rowEls.indexOf(swipeRow);
+      if (dx > 0) promoteTask(i);
+      else demoteTask(i);
+      return;
+    }
     const idx = SHEETS.indexOf(state.current);
     if (dx < 0 && idx < SHEETS.length - 1) goToSheet(SHEETS[idx + 1]);
     else if (dx > 0 && idx > 0) goToSheet(SHEETS[idx - 1]);
   });
-  card.addEventListener("pointercancel", () => { swiping = false; });
+  card.addEventListener("pointercancel", () => { swiping = false; swipeRow = null; });
 
   function render() {
     const sheet = state[state.current];
@@ -459,11 +577,12 @@
     requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("switching")));
     document.body.dataset.sheet = state.current;
     document.getElementById("sheetName").textContent = NAMES[state.current];
+    renderDateBox();
     const idx = SHEETS.indexOf(state.current);
     rowEls.forEach((row, i) => {
       const task = sheet.tasks[i];
       row.querySelector("input").value = task.t;
-      row.classList.remove("zap", "promoting", "shake");
+      row.classList.remove("zap", "promoting", "demoting", "shake");
       row.classList.toggle("done", task.d);
       row.classList.toggle("has-text", task.t.length > 0);
       const promoteBtn = row.querySelector(".promote");
