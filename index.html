@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#efeadd">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sparkies">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-32.png" sizes="32x32">
 <title>Sparkies</title>
 <style>
   :root {
@@ -20,6 +24,17 @@
   }
   body[data-sheet="thunderstorm"] {
     --paper: #b99e75; --line: #a3885c; --ink: #453922; --muted: #7d6a48;
+  }
+  /* Dark mode — same relative value steps, shifted to a dark register */
+  body.dark { --bg: #15130f; }
+  body.dark[data-sheet="sparks"] {
+    --paper: #2b2a27; --line: #46443e; --ink: #e8e4d8; --muted: #8a8579;
+  }
+  body.dark[data-sheet="lightning"] {
+    --paper: #262320; --line: #443f34; --ink: #e6ddc8; --muted: #8c8271;
+  }
+  body.dark[data-sheet="thunderstorm"] {
+    --paper: #1e1712; --line: #3a2e22; --ink: #d9c9ab; --muted: #7a6a54;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -44,20 +59,66 @@
     user-select: none;
   }
 
-  /* ---------- Card ---------- */
-  .card {
+  /* ---------- Stars: flip-to-template, (unassigned), dark mode ---------- */
+  .stars {
+    flex: none;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 2px 0 6px;
+  }
+  .star {
+    border: none;
+    background: transparent;
+    padding: 0;
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+  }
+  .star svg {
+    width: 100%;
+    height: 100%;
+    fill: var(--muted);
+    transition: fill .15s ease;
+  }
+  .star.active svg { fill: var(--gold); }
+
+  /* ---------- Card flip (front task list / back daily template) ---------- */
+  .card-flip {
     position: relative;
     z-index: 0;
     flex: 1;
     min-height: 0;
+    perspective: 1400px;
+  }
+  .card-flip > .card {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transition: transform .5s ease, background .35s ease;
+  }
+  .card-flip > .card.card-back { transform: rotateY(180deg); }
+  .card-flip.flipped > #cardFront { transform: rotateY(180deg); }
+  .card-flip.flipped > #cardBack { transform: rotateY(0deg); }
+
+  /* ---------- Card ---------- */
+  .card {
     background: var(--paper);
     border-radius: 20px;
     box-shadow: 0 2px 6px rgba(60, 50, 30, .12), 0 12px 28px rgba(60, 50, 30, .10);
     padding: 20px 22px 22px;
     display: flex;
     flex-direction: column;
-    transition: background .35s ease;
     touch-action: none;
+  }
+  .tmpl-hint {
+    flex: none;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: .03em;
+    padding-top: 4px;
   }
 
   /* Thunderstorm: a small cloud drifts across with an occasional lightning flash */
@@ -190,17 +251,6 @@
     from { offset-distance: 0%; }
     to { offset-distance: 100%; }
   }
-  .daydots { display: flex; flex-direction: column; gap: 5px; padding-top: 1px; }
-  .daydots .dot {
-    width: 11px; height: 11px;
-    border: 1.5px solid var(--muted);
-    border-radius: 50%;
-    background: transparent;
-    cursor: pointer;
-    transition: background .15s ease;
-  }
-  .daydots .dot.on { background: var(--muted); }
-
   /* ---------- Task rows ---------- */
   .rows {
     flex: 1;
@@ -272,6 +322,10 @@
     padding: 4px 2px 5px;
     user-select: text;
     transition: color .3s ease;
+  }
+  /* no text selection anywhere while a hold-drag reorder is in progress */
+  body.reorder-active .row .line input {
+    user-select: none;
   }
   .row.done input { color: var(--muted); }
 
@@ -371,9 +425,8 @@
     transform: scale(1.3);
   }
 
-  /* snap signals/dots instantly when switching sheets (paper still cross-fades) */
-  body.switching .signal,
-  body.switching .dot { transition: none; }
+  /* snap signals instantly when switching sheets (paper still cross-fades) */
+  body.switching .signal { transition: none; }
 
   /* ---------- Task count badge ---------- */
   .pager { position: relative; }
@@ -436,28 +489,45 @@
 </head>
 <body data-sheet="sparks">
 
-  <main class="card">
-    <div class="cloud-layer" aria-hidden="true">
-      <div class="cloud-drift">
-        <svg class="cloud-shape" viewBox="0 0 24 24">
-          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
-        </svg>
-        <svg class="cloud-bolt" viewBox="0 0 24 24"><path d="M13 1 3.5 13.5H10L8.5 23 19 10.5h-6.5L13 1z"/></svg>
-      </div>
-    </div>
-    <header>
-      <h1 id="sheetName">Sparks</h1>
-      <div class="corner">
-        <button class="datebox" id="dateBox" type="button" aria-label="Clear this sheet's tasks"></button>
-        <div class="daydots">
-          <button class="dot" data-dot="0" title="Morning" aria-label="Morning"></button>
-          <button class="dot" data-dot="1" title="Afternoon" aria-label="Afternoon"></button>
-          <button class="dot" data-dot="2" title="Evening" aria-label="Evening"></button>
+  <div class="stars">
+    <button class="star" id="starTemplate" type="button" aria-label="Flip to daily template">
+      <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
+    </button>
+    <button class="star" id="starMystery" type="button" aria-label="Star">
+      <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
+    </button>
+    <button class="star" id="starDark" type="button" aria-label="Toggle dark mode">
+      <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
+    </button>
+  </div>
+
+  <div class="card-flip" id="cardFlip">
+    <main class="card" id="cardFront">
+      <div class="cloud-layer" aria-hidden="true">
+        <div class="cloud-drift">
+          <svg class="cloud-shape" viewBox="0 0 24 24">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+          </svg>
+          <svg class="cloud-bolt" viewBox="0 0 24 24"><path d="M13 1 3.5 13.5H10L8.5 23 19 10.5h-6.5L13 1z"/></svg>
         </div>
       </div>
-    </header>
-    <div class="rows" id="rows"></div>
-  </main>
+      <header>
+        <h1 id="sheetName">Sparks</h1>
+        <div class="corner">
+          <button class="datebox" id="dateBox" type="button" aria-label="Clear this sheet's tasks"></button>
+        </div>
+      </header>
+      <div class="rows" id="rows"></div>
+    </main>
+
+    <div class="card card-back" id="cardBack">
+      <header>
+        <h1 id="templateTitle">Template</h1>
+      </header>
+      <div class="rows" id="templateRows"></div>
+      <p class="tmpl-hint">Fills in when you tap the date to reset.</p>
+    </div>
+  </div>
 
   <nav class="pager" id="pager">
     <button class="pdot" data-sheet="sparks" aria-label="Sparks"></button>
@@ -474,23 +544,51 @@
 <script>
 (() => {
   const SHEETS = ["sparks", "lightning", "thunderstorm"];
-  const DEFAULT_NAMES = { sparks: "Sparks", lightning: "Lightning", thunderstorm: "Thunderstorm" };
+  const DEFAULT_NAMES = { sparks: "Today", lightning: "Week", thunderstorm: "Life" };
+  const OLD_DEFAULT_NAMES = { sparks: "Sparks", lightning: "Lightning", thunderstorm: "Thunderstorm" };
   const N = 10;
   const KEY = "sparkies-v1";
 
-  const blankSheet = () => ({
-    tasks: Array.from({ length: N }, () => ({ t: "", d: false })),
-    dots: [false, false, false],
-  });
+  // A sheet's "template" is what a date-tap reset fills it back in with,
+  // instead of leaving it blank (edited on the back of the flipped card).
+  const makeSheet = (template) => {
+    const tmpl = template ? template.slice() : Array.from({ length: N }, () => "");
+    return {
+      tasks: tmpl.map((t) => ({ t: t || "", d: false })),
+      template: tmpl,
+    };
+  };
 
   let state;
   try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch { state = {}; }
-  for (const s of SHEETS) if (!state[s]) state[s] = blankSheet();
+  for (const s of SHEETS) if (!state[s]) state[s] = makeSheet();
+  for (const s of SHEETS) if (!state[s].template) state[s].template = Array.from({ length: N }, () => "");
   if (!SHEETS.includes(state.current)) state.current = "sparks";
   if (!state.names) state.names = {};
-  for (const s of SHEETS) if (!state.names[s]) state.names[s] = DEFAULT_NAMES[s];
+  for (const s of SHEETS) {
+    // Adopt the new default name for anyone who never customized it
+    // (i.e. it's still sitting at the old hardcoded default).
+    if (!state.names[s] || state.names[s] === OLD_DEFAULT_NAMES[s]) {
+      state.names[s] = DEFAULT_NAMES[s];
+    }
+  }
+  if (!("dark" in state)) state.dark = false;
 
   const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+
+  // ---------- Dark mode (right star) ----------
+  const starDarkEl = document.getElementById("starDark");
+  function applyDark() {
+    document.body.classList.toggle("dark", state.dark);
+    starDarkEl.classList.toggle("active", state.dark);
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", state.dark ? "#15130f" : "#efeadd");
+  }
+  starDarkEl.addEventListener("click", () => {
+    state.dark = !state.dark;
+    save();
+    applyDark();
+  });
+  applyDark();
 
   // ---------- Undo toast for destructive clears ----------
   const undoToastEl = document.getElementById("undoToast");
@@ -536,13 +634,12 @@
   }
   dateBoxEl.addEventListener("click", () => {
     const sheet = state[state.current];
-    const hasContent = sheet.tasks.some((t) => t.t) || sheet.dots.some(Boolean);
-    if (!hasContent) return;
+    if (!sheet.tasks.some((t) => t.t)) return;
     if (!confirm("Clear all " + state.names[state.current] + " tasks?")) return;
     const snapshot = JSON.parse(JSON.stringify(sheet));
     const key = state.current;
     const name = state.names[key];
-    state[key] = blankSheet();
+    state[key] = makeSheet(sheet.template);
     save();
     render();
     showUndo("Cleared " + name, key, snapshot);
@@ -585,6 +682,7 @@
       if (!task.d) {
         task.d = true;
         save();
+        if (navigator.vibrate) navigator.vibrate(15);
         row.classList.add("zap");
         setTimeout(() => { row.classList.remove("zap"); row.classList.add("done"); }, 460);
       } else {
@@ -595,14 +693,38 @@
     });
   }
 
-  const dotEls = [...document.querySelectorAll(".daydots .dot")];
-  dotEls.forEach((dot, i) => {
-    dot.addEventListener("click", () => {
-      const dots = state[state.current].dots;
-      dots[i] = !dots[i];
+  // ---------- Daily template: back of the card, flipped to with the left star ----------
+  const cardFlipEl = document.getElementById("cardFlip");
+  const starTemplateEl = document.getElementById("starTemplate");
+  const templateTitleEl = document.getElementById("templateTitle");
+  const templateRowsEl = document.getElementById("templateRows");
+  const templateInputs = [];
+
+  for (let i = 0; i < N; i++) {
+    const row = document.createElement("div");
+    row.className = "row tmpl-row";
+    row.innerHTML = '<div class="line"><input type="text" maxlength="25" autocomplete="off" autocapitalize="off" spellcheck="false"></div>';
+    templateRowsEl.appendChild(row);
+    const input = row.querySelector("input");
+    templateInputs.push(input);
+    input.addEventListener("input", () => {
+      state[state.current].template[i] = input.value;
       save();
-      dot.classList.toggle("on", dots[i]);
     });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && i < N - 1) templateInputs[i + 1].focus();
+    });
+  }
+
+  function renderBack() {
+    templateTitleEl.textContent = state.names[state.current] + " Template";
+    const tmpl = state[state.current].template;
+    templateInputs.forEach((inp, i) => { inp.value = tmpl[i] || ""; });
+  }
+
+  starTemplateEl.addEventListener("click", () => {
+    const flipped = cardFlipEl.classList.toggle("flipped");
+    starTemplateEl.classList.toggle("active", flipped);
   });
 
   // ---------- Promote a task up to the next lighter sheet ----------
@@ -675,6 +797,7 @@
 
   function finishDrag() {
     reorderDragging = false;
+    document.body.classList.remove("reorder-active");
     if (dragOverIndex !== dragFromIndex) {
       const tasks = state[state.current].tasks;
       const moved = tasks.splice(dragFromIndex, 1)[0];
@@ -703,6 +826,9 @@
         dragRowHeight = row.getBoundingClientRect().height;
         row.setPointerCapture(dragPointerId);
         row.classList.add("dragging");
+        document.body.classList.add("reorder-active");
+        const sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
       }, 500);
     });
 
@@ -808,7 +934,7 @@
   titleEl.addEventListener("pointercancel", () => clearTimeout(titleTimer));
 
   // ---------- Pager: dots + swipe between sheets ----------
-  const card = document.querySelector(".card");
+  const card = document.getElementById("cardFront");
   const pagerEls = [...document.querySelectorAll(".pdot")];
 
   function goToSheet(name) {
@@ -887,12 +1013,12 @@
       const promoteBtn = row.querySelector(".promote");
       promoteBtn.title = idx > 0 ? "Send to " + state.names[SHEETS[idx - 1]] : "";
     });
-    dotEls.forEach((dot, i) => dot.classList.toggle("on", sheet.dots[i]));
     pagerEls.forEach((dot) => {
       dot.classList.toggle("active", dot.dataset.sheet === state.current);
       dot.setAttribute("aria-label", state.names[dot.dataset.sheet]);
     });
     updateCount();
+    renderBack();
   }
 
   function updateCount() {
