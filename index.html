@@ -474,7 +474,8 @@
 <script>
 (() => {
   const SHEETS = ["sparks", "lightning", "thunderstorm"];
-  const DEFAULT_NAMES = { sparks: "Sparks", lightning: "Lightning", thunderstorm: "Thunderstorm" };
+  const DEFAULT_NAMES = { sparks: "Today", lightning: "Week", thunderstorm: "Life" };
+  const OLD_DEFAULT_NAMES = { sparks: "Sparks", lightning: "Lightning", thunderstorm: "Thunderstorm" };
   const N = 10;
   const KEY = "sparkies-v1";
 
@@ -488,7 +489,13 @@
   for (const s of SHEETS) if (!state[s]) state[s] = blankSheet();
   if (!SHEETS.includes(state.current)) state.current = "sparks";
   if (!state.names) state.names = {};
-  for (const s of SHEETS) if (!state.names[s]) state.names[s] = DEFAULT_NAMES[s];
+  for (const s of SHEETS) {
+    // Adopt the new default name for anyone who never customized it
+    // (i.e. it's still sitting at the old hardcoded default).
+    if (!state.names[s] || state.names[s] === OLD_DEFAULT_NAMES[s]) {
+      state.names[s] = DEFAULT_NAMES[s];
+    }
+  }
 
   const save = () => localStorage.setItem(KEY, JSON.stringify(state));
 
