@@ -1120,7 +1120,10 @@
     const dx = e.clientX - swipeX;
     const dy = e.clientY - swipeY;
     if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    if (swipeRow) {
+    // A normal swipe pages the sheet even if it started on a task with
+    // text - only a longer, more deliberate drag promotes/demotes it, so
+    // a casual "just paging through" swipe never gets mistaken for one.
+    if (swipeRow && Math.abs(dx) >= 115) {
       const i = rowEls.indexOf(swipeRow);
       if (dx > 0) promoteTask(i);
       else demoteTask(i);
