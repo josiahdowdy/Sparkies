@@ -59,20 +59,23 @@
     user-select: none;
   }
 
-  /* ---------- Stars: flip-to-template, (unassigned), dark mode ---------- */
+  /* ---------- Stars: flip-to-template, quote/verse, dark mode ---------- */
+  /* Sit outside the two card faces so they stay put (and tappable)
+     regardless of which face is currently flipped into view. */
   .stars {
-    flex: none;
+    position: absolute;
+    top: 50px;
+    right: 22px;
     display: flex;
-    justify-content: center;
-    gap: 20px;
-    padding: 2px 0 6px;
+    gap: 10px;
+    z-index: 10;
   }
   .star {
     border: none;
     background: transparent;
     padding: 0;
-    width: 15px;
-    height: 15px;
+    width: 13px;
+    height: 13px;
     cursor: pointer;
   }
   .star svg {
@@ -477,6 +480,47 @@
     padding: 0;
   }
 
+  /* ---------- Verse / quote popup ---------- */
+  .quote-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 16, 10, .5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 34px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+    z-index: 60;
+  }
+  .quote-overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .quote-card {
+    background: var(--paper);
+    color: var(--ink);
+    border-radius: 16px;
+    padding: 28px 24px;
+    max-width: 300px;
+    text-align: center;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .32);
+    transform: scale(.92);
+    transition: transform .2s ease;
+  }
+  .quote-overlay.show .quote-card { transform: scale(1); }
+  .quote-text {
+    font-size: 16px;
+    line-height: 1.55;
+    margin-bottom: 14px;
+  }
+  .quote-ref {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: .05em;
+  }
+
   /* ---------- Drag to reorder ---------- */
   .row.dragging {
     transition: none;
@@ -488,18 +532,6 @@
 </style>
 </head>
 <body data-sheet="sparks">
-
-  <div class="stars">
-    <button class="star" id="starTemplate" type="button" aria-label="Flip to daily template">
-      <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
-    </button>
-    <button class="star" id="starMystery" type="button" aria-label="Star">
-      <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
-    </button>
-    <button class="star" id="starDark" type="button" aria-label="Toggle dark mode">
-      <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
-    </button>
-  </div>
 
   <div class="card-flip" id="cardFlip">
     <main class="card" id="cardFront">
@@ -526,6 +558,25 @@
       </header>
       <div class="rows" id="templateRows"></div>
       <p class="tmpl-hint">Fills in when you tap the date to reset.</p>
+    </div>
+
+    <div class="stars">
+      <button class="star" id="starTemplate" type="button" aria-label="Flip to daily template">
+        <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
+      </button>
+      <button class="star" id="starQuote" type="button" aria-label="Show a verse or quote">
+        <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
+      </button>
+      <button class="star" id="starDark" type="button" aria-label="Toggle dark mode">
+        <svg viewBox="0 0 24 24"><path d="M12 2 14.9 8.6 22 9.3 16.7 14.1 18.2 21 12 17.3 5.8 21 7.3 14.1 2 9.3 9.1 8.6 12 2Z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="quote-overlay" id="quoteOverlay">
+    <div class="quote-card">
+      <p class="quote-text" id="quoteText"></p>
+      <p class="quote-ref" id="quoteRef"></p>
     </div>
   </div>
 
@@ -590,6 +641,52 @@
   });
   applyDark();
 
+  // ---------- Middle star: a random verse or quote ----------
+  const QUOTES = [
+    { text: "Be not afraid, be not dismayed, I will uphold you.", ref: "Isaiah 41:10" },
+    { text: "I can do all things through Christ who strengthens me.", ref: "Philippians 4:13" },
+    { text: "Trust in the Lord with all your heart, and lean not on your own understanding.", ref: "Proverbs 3:5" },
+    { text: "Be strong and courageous. Do not be afraid; do not be discouraged.", ref: "Joshua 1:9" },
+    { text: "The Lord is my shepherd; I shall not want.", ref: "Psalm 23:1" },
+    { text: "Cast all your anxiety on him because he cares for you.", ref: "1 Peter 5:7" },
+    { text: "For I know the plans I have for you, plans to prosper you and not to harm you.", ref: "Jeremiah 29:11" },
+    { text: "This is the day the Lord has made; let us rejoice and be glad in it.", ref: "Psalm 118:24" },
+    { text: "Whatever you do, work at it with all your heart, as working for the Lord.", ref: "Colossians 3:23" },
+    { text: "Come to me, all who labor and are heavy laden, and I will give you rest.", ref: "Matthew 11:28" },
+    { text: "The joy of the Lord is your strength.", ref: "Nehemiah 8:10" },
+    { text: "Commit to the Lord whatever you do, and he will establish your plans.", ref: "Proverbs 16:3" },
+    { text: "Let us not become weary in doing good, for at the proper time we will reap a harvest.", ref: "Galatians 6:9" },
+    { text: "Be still, and know that I am God.", ref: "Psalm 46:10" },
+    { text: "In all your ways acknowledge him, and he will make straight your paths.", ref: "Proverbs 3:6" },
+    { text: "Discipline is the bridge between goals and accomplishment.", ref: "Jim Rohn" },
+    { text: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", ref: "Aristotle" },
+    { text: "The secret of getting ahead is getting started.", ref: "Mark Twain" },
+    { text: "You don't have to be great to start, but you have to start to be great.", ref: "Zig Ziglar" },
+    { text: "Small daily improvements are the key to staggering long-term results.", ref: "Robin Sharma" },
+    { text: "Motivation gets you going, but discipline keeps you growing.", ref: "John C. Maxwell" },
+    { text: "Do the hard jobs first. The easy jobs will take care of themselves.", ref: "Dale Carnegie" },
+    { text: "Action is the foundational key to all success.", ref: "Pablo Picasso" },
+    { text: "Success is the sum of small efforts, repeated day in and day out.", ref: "Robert Collier" },
+    { text: "The way to get started is to quit talking and begin doing.", ref: "Walt Disney" },
+    { text: "Focus on being productive instead of busy.", ref: "Tim Ferriss" },
+    { text: "Until we can manage time, we can manage nothing else.", ref: "Peter Drucker" },
+    { text: "It's not that I'm so smart, it's just that I stay with problems longer.", ref: "Albert Einstein" },
+    { text: "A year from now you may wish you had started today.", ref: "Karen Lamb" },
+    { text: "Never leave till tomorrow which you can do today.", ref: "Benjamin Franklin" },
+  ];
+  const quoteOverlayEl = document.getElementById("quoteOverlay");
+  const quoteTextEl = document.getElementById("quoteText");
+  const quoteRefEl = document.getElementById("quoteRef");
+  document.getElementById("starQuote").addEventListener("click", () => {
+    const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+    quoteTextEl.textContent = q.text;
+    quoteRefEl.textContent = q.ref;
+    quoteOverlayEl.classList.add("show");
+  });
+  quoteOverlayEl.addEventListener("click", () => {
+    quoteOverlayEl.classList.remove("show");
+  });
+
   // ---------- Undo toast for destructive clears ----------
   const undoToastEl = document.getElementById("undoToast");
   const undoTextEl = document.getElementById("undoText");
@@ -618,7 +715,8 @@
 
   // Top-right date box: a plain date on Sparks, month + week-of-month on
   // Lightning, and an animated infinity symbol on Thunderstorm (someday
-  // has no deadline). Tapping it clears the sheet you're looking at.
+  // has no deadline). Tap it to clear the sheet (refilling from its daily
+  // template, if one's set); hold it down to wipe every line fully blank.
   const dateBoxEl = document.getElementById("dateBox");
   function renderDateBox() {
     const now = new Date();
@@ -632,7 +730,8 @@
       dateBoxEl.textContent = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
   }
-  dateBoxEl.addEventListener("click", () => {
+
+  function clearSheetToTemplate() {
     const sheet = state[state.current];
     if (!sheet.tasks.some((t) => t.t)) return;
     if (!confirm("Clear all " + state.names[state.current] + " tasks?")) return;
@@ -643,7 +742,44 @@
     save();
     render();
     showUndo("Cleared " + name, key, snapshot);
+  }
+
+  function clearSheetFullyBlank() {
+    const sheet = state[state.current];
+    if (!sheet.tasks.some((t) => t.t)) return;
+    if (!confirm("Wipe every line on " + state.names[state.current] + " completely blank?")) return;
+    const snapshot = JSON.parse(JSON.stringify(sheet));
+    const key = state.current;
+    const name = state.names[key];
+    const keptTemplate = sheet.template;
+    state[key] = makeSheet();
+    state[key].template = keptTemplate;
+    save();
+    render();
+    showUndo("Wiped " + name + " blank", key, snapshot);
+  }
+
+  let dateTimer = null, dateDownX = 0, dateDownY = 0, dateLongPressed = false;
+  dateBoxEl.addEventListener("pointerdown", (e) => {
+    dateDownX = e.clientX;
+    dateDownY = e.clientY;
+    dateLongPressed = false;
+    clearTimeout(dateTimer);
+    dateTimer = setTimeout(() => {
+      dateLongPressed = true;
+      clearSheetFullyBlank();
+    }, 500);
   });
+  dateBoxEl.addEventListener("pointermove", (e) => {
+    if (Math.abs(e.clientX - dateDownX) > 10 || Math.abs(e.clientY - dateDownY) > 10) {
+      clearTimeout(dateTimer);
+    }
+  });
+  dateBoxEl.addEventListener("pointerup", () => {
+    clearTimeout(dateTimer);
+    if (!dateLongPressed) clearSheetToTemplate();
+  });
+  dateBoxEl.addEventListener("pointercancel", () => clearTimeout(dateTimer));
 
   const rowsEl = document.getElementById("rows");
   const rowEls = [];
