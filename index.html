@@ -66,7 +66,9 @@
     position: absolute;
     top: 50px;
     right: 22px;
+    width: 86px;
     display: flex;
+    justify-content: center;
     gap: 10px;
     z-index: 10;
   }
@@ -557,7 +559,7 @@
         <h1 id="templateTitle">Template</h1>
       </header>
       <div class="rows" id="templateRows"></div>
-      <p class="tmpl-hint">Fills in when you tap the date to reset.</p>
+      <p class="tmpl-hint" id="tmplHint">Fills in when you tap the date to reset.</p>
     </div>
 
     <div class="stars">
@@ -614,6 +616,8 @@
   try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch { state = {}; }
   for (const s of SHEETS) if (!state[s]) state[s] = makeSheet();
   for (const s of SHEETS) if (!state[s].template) state[s].template = Array.from({ length: N }, () => "");
+  // Life's back isn't a task template - it's a free write-up of what matters most.
+  if (!state.thunderstorm.treasures) state.thunderstorm.treasures = Array.from({ length: N }, () => "");
   if (!SHEETS.includes(state.current)) state.current = "sparks";
   if (!state.names) state.names = {};
   for (const s of SHEETS) {
@@ -738,7 +742,9 @@
     const snapshot = JSON.parse(JSON.stringify(sheet));
     const key = state.current;
     const name = state.names[key];
+    const keptTreasures = sheet.treasures;
     state[key] = makeSheet(sheet.template);
+    if (keptTreasures) state[key].treasures = keptTreasures;
     save();
     render();
     showUndo("Cleared " + name, key, snapshot);
@@ -752,8 +758,10 @@
     const key = state.current;
     const name = state.names[key];
     const keptTemplate = sheet.template;
+    const keptTreasures = sheet.treasures;
     state[key] = makeSheet();
     state[key].template = keptTemplate;
+    if (keptTreasures) state[key].treasures = keptTreasures;
     save();
     render();
     showUndo("Wiped " + name + " blank", key, snapshot);
@@ -829,12 +837,18 @@
     });
   }
 
-  // ---------- Daily template: back of the card, flipped to with the left star ----------
+  // ---------- Back of the card: daily/weekly template, or Life's Treasures ----------
   const cardFlipEl = document.getElementById("cardFlip");
+  const cardBackEl = document.getElementById("cardBack");
   const starTemplateEl = document.getElementById("starTemplate");
   const templateTitleEl = document.getElementById("templateTitle");
   const templateRowsEl = document.getElementById("templateRows");
+  const tmplHintEl = document.getElementById("tmplHint");
   const templateInputs = [];
+
+  // Life's back is a free write-up of what matters most, not a task
+  // template - it's never used to refill the task list on a clear.
+  const backField = () => (state.current === "thunderstorm" ? "treasures" : "template");
 
   for (let i = 0; i < N; i++) {
     const row = document.createElement("div");
@@ -844,7 +858,7 @@
     const input = row.querySelector("input");
     templateInputs.push(input);
     input.addEventListener("input", () => {
-      state[state.current].template[i] = input.value;
+      state[state.current][backField()][i] = input.value;
       save();
     });
     input.addEventListener("keydown", (e) => {
@@ -853,15 +867,41 @@
   }
 
   function renderBack() {
-    templateTitleEl.textContent = state.names[state.current] + " Template";
-    const tmpl = state[state.current].template;
-    templateInputs.forEach((inp, i) => { inp.value = tmpl[i] || ""; });
+    if (state.current === "thunderstorm") {
+      templateTitleEl.textContent = "Treasures";
+      tmplHintEl.textContent = "What matters most to you.";
+    } else {
+      templateTitleEl.textContent = state.names[state.current] + " Template";
+      tmplHintEl.textContent = "Fills in when you tap the date to reset.";
+    }
+    const arr = state[state.current][backField()];
+    templateInputs.forEach((inp, i) => { inp.value = arr[i] || ""; });
   }
 
-  starTemplateEl.addEventListener("click", () => {
+  function toggleFlip() {
     const flipped = cardFlipEl.classList.toggle("flipped");
     starTemplateEl.classList.toggle("active", flipped);
+  }
+  starTemplateEl.addEventListener("click", toggleFlip);
+
+  // A vertical swipe on either face also flips the card.
+  let backSwipeY = null, backSwiping = false, backCommitted = false;
+  cardBackEl.addEventListener("pointerdown", (e) => {
+    backSwipeY = e.clientY;
+    backSwiping = true;
+    backCommitted = false;
   });
+  cardBackEl.addEventListener("pointermove", (e) => {
+    if (!backSwiping) return;
+    if (!backCommitted && Math.abs(e.clientY - backSwipeY) > 10) backCommitted = true;
+    if (backCommitted) e.preventDefault();
+  });
+  cardBackEl.addEventListener("pointerup", (e) => {
+    if (!backSwiping) return;
+    backSwiping = false;
+    if (Math.abs(e.clientY - backSwipeY) >= 70) toggleFlip();
+  });
+  cardBackEl.addEventListener("pointercancel", () => { backSwiping = false; });
 
   // ---------- Promote a task up to the next lighter sheet ----------
   function promoteTask(i) {
@@ -986,15 +1026,25 @@
       }
     });
 
-    row.addEventListener("pointerup", () => {
+    row.addEventListener("pointerup", (e) => {
       clearTimeout(dragTimer);
-      if (dragArmed) finishDrag();
+      if (dragArmed) {
+        // Stop this same event from also reaching the card's swipe/flip
+        // handlers - finishDrag() below already clears reorderDragging,
+        // and without this a big vertical drag-to-reorder gesture would
+        // otherwise get misread as a vertical swipe-to-flip right after.
+        e.stopPropagation();
+        finishDrag();
+      }
       dragRow = null;
       dragArmed = false;
     });
-    row.addEventListener("pointercancel", () => {
+    row.addEventListener("pointercancel", (e) => {
       clearTimeout(dragTimer);
-      if (dragArmed) finishDrag();
+      if (dragArmed) {
+        e.stopPropagation();
+        finishDrag();
+      }
       dragRow = null;
       dragArmed = false;
     });
@@ -1106,9 +1156,9 @@
     if (!swiping) return;
     const dx = e.clientX - swipeX;
     const dy = e.clientY - swipeY;
-    // Once a horizontal drag is clearly underway, stop the browser from
-    // treating it as native text selection/caret dragging inside the input.
-    if (!swipeCommitted && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+    // Once a drag is clearly underway in either direction, stop the
+    // browser from treating it as native text selection/caret dragging.
+    if (!swipeCommitted && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
       swipeCommitted = true;
     }
     if (swipeCommitted) e.preventDefault();
@@ -1119,11 +1169,16 @@
     swiping = false;
     const dx = e.clientX - swipeX;
     const dy = e.clientY - swipeY;
+    // A vertical swipe flips the card to its other side.
+    if (Math.abs(dy) >= 70 && Math.abs(dy) > Math.abs(dx)) {
+      toggleFlip();
+      return;
+    }
     if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     // A normal swipe pages the sheet even if it started on a task with
     // text - only a longer, more deliberate drag promotes/demotes it, so
     // a casual "just paging through" swipe never gets mistaken for one.
-    if (swipeRow && Math.abs(dx) >= 115) {
+    if (swipeRow && Math.abs(dx) >= 230) {
       const i = rowEls.indexOf(swipeRow);
       if (dx > 0) promoteTask(i);
       else demoteTask(i);
