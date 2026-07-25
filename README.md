@@ -18,8 +18,8 @@ Long-press a sheet's title to rename it — your name is saved and used everywhe
 
 - Each sheet holds exactly 10 tasks — the card never grows past your phone screen.
 - Tap the circle next to a task and a lightning bolt zips across it to strike it through; the circle spins a quarter turn before it fills in.
-- Swipe a task right to promote it up a sheet (Life → Week → Today), or left to demote it back down. Swiping empty space pages between sheets.
-- Hold a task and drag it up or down to reorder the list.
+- Swipe sideways to page between sheets; swipe up or down to flip the card over to its back.
+- Hold a task to pick it up, then drag it: up/down to reorder the list, or sideways to send it to another sheet (right moves it up — Life → Week → Today; left moves it back down). It turns gold once you've dragged far enough for it to move.
 - Tap a sheet's title to clear its completed tasks; tap the date box to clear the whole sheet (or hold the date box to wipe it fully blank). Both show an "Undo" toast for a few seconds.
 - Three stars sit under the date: flip the card to write a daily template, get a random verse or quote, or toggle dark mode.
 - Everything saves automatically in your browser (localStorage), so your tasks are still there when you come back.

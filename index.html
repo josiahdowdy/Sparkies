@@ -89,12 +89,17 @@
   .star.active svg { fill: var(--gold); }
 
   /* ---------- Card flip (front task list / back daily template) ---------- */
+  /* Flips end-over-end around the horizontal axis, like turning over a
+     real card. --flip is +1 or -1 so the card tumbles the same way the
+     finger swiped; the two faces stay exactly 180deg apart throughout,
+     so it reads as one continuous rotation rather than two half-turns. */
   .card-flip {
     position: relative;
     z-index: 0;
     flex: 1;
     min-height: 0;
     perspective: 1400px;
+    --flip: 1;
   }
   .card-flip > .card {
     position: absolute;
@@ -103,9 +108,9 @@
     -webkit-backface-visibility: hidden;
     transition: transform .5s ease, background .35s ease;
   }
-  .card-flip > .card.card-back { transform: rotateY(180deg); }
-  .card-flip.flipped > #cardFront { transform: rotateY(180deg); }
-  .card-flip.flipped > #cardBack { transform: rotateY(0deg); }
+  .card-flip > .card.card-back { transform: rotateX(calc(var(--flip) * -180deg)); }
+  .card-flip.flipped > #cardFront { transform: rotateX(calc(var(--flip) * 180deg)); }
+  .card-flip.flipped > #cardBack { transform: rotateX(0deg); }
 
   /* ---------- Card ---------- */
   .card {
@@ -531,6 +536,9 @@
     border-radius: 8px;
     box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
   }
+  /* dragged sideways far enough that letting go sends it to another sheet */
+  .row.dragging.will-move input { color: var(--gold); }
+  .row.dragging.will-move { box-shadow: 0 6px 18px rgba(247, 201, 72, .45); }
 </style>
 </head>
 <body data-sheet="sparks">
@@ -878,11 +886,13 @@
     templateInputs.forEach((inp, i) => { inp.value = arr[i] || ""; });
   }
 
-  function toggleFlip() {
+  // dir: +1 tumbles the card the way an upward swipe would, -1 downward.
+  function toggleFlip(dir) {
+    cardFlipEl.style.setProperty("--flip", dir === -1 ? "-1" : "1");
     const flipped = cardFlipEl.classList.toggle("flipped");
     starTemplateEl.classList.toggle("active", flipped);
   }
-  starTemplateEl.addEventListener("click", toggleFlip);
+  starTemplateEl.addEventListener("click", () => toggleFlip(1));
 
   // A vertical swipe on either face also flips the card.
   let backSwipeY = null, backSwiping = false, backCommitted = false;
@@ -899,7 +909,8 @@
   cardBackEl.addEventListener("pointerup", (e) => {
     if (!backSwiping) return;
     backSwiping = false;
-    if (Math.abs(e.clientY - backSwipeY) >= 70) toggleFlip();
+    const dy = e.clientY - backSwipeY;
+    if (Math.abs(dy) >= 70) toggleFlip(dy < 0 ? 1 : -1);
   });
   cardBackEl.addEventListener("pointercancel", () => { backSwiping = false; });
 
@@ -960,6 +971,7 @@
   let dragTimer = null, dragArmed = false, dragRow = null;
   let dragFromIndex = -1, dragOverIndex = -1;
   let dragStartX = 0, dragStartY = 0, dragRowHeight = 0, dragPointerId = null;
+  let dragAxis = null, dragDX = 0;
 
   function applyDragShifts() {
     rowEls.forEach((r, idx) => {
@@ -974,7 +986,10 @@
   function finishDrag() {
     reorderDragging = false;
     document.body.classList.remove("reorder-active");
-    if (dragOverIndex !== dragFromIndex) {
+    const wasSideways = dragAxis === "x";
+    const finalDX = dragDX;
+    const fromIndex = dragFromIndex;
+    if (!wasSideways && dragOverIndex !== dragFromIndex) {
       const tasks = state[state.current].tasks;
       const moved = tasks.splice(dragFromIndex, 1)[0];
       tasks.splice(dragOverIndex, 0, moved);
@@ -983,6 +998,11 @@
     dragRow.classList.remove("dragging");
     rowEls.forEach((r) => { r.style.transform = ""; });
     render();
+    // A held row dragged sideways far enough moves to another sheet.
+    if (wasSideways && Math.abs(finalDX) >= 60) {
+      if (finalDX > 0) promoteTask(fromIndex);
+      else demoteTask(fromIndex);
+    }
   }
 
   rowEls.forEach((row, i) => {
@@ -994,6 +1014,8 @@
       dragStartX = e.clientX;
       dragStartY = e.clientY;
       dragArmed = false;
+      dragAxis = null;
+      dragDX = 0;
       dragPointerId = e.pointerId;
       clearTimeout(dragTimer);
       dragTimer = setTimeout(() => {
@@ -1003,6 +1025,7 @@
         row.setPointerCapture(dragPointerId);
         row.classList.add("dragging");
         document.body.classList.add("reorder-active");
+        if (navigator.vibrate) navigator.vibrate(10);
         const sel = window.getSelection();
         if (sel) sel.removeAllRanges();
       }, 500);
@@ -1017,6 +1040,17 @@
         return;
       }
       e.preventDefault();
+      dragDX = dx;
+      // Lock to whichever axis the finger commits to first: sideways
+      // sends the task to another sheet, up/down reorders the list.
+      if (!dragAxis && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
+        dragAxis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      }
+      if (dragAxis === "x") {
+        row.style.transform = `translateX(${dx}px)`;
+        row.classList.toggle("will-move", Math.abs(dx) >= 60);
+        return;
+      }
       row.style.transform = `translateY(${dy}px)`;
       const shift = Math.round(dy / dragRowHeight);
       const newOver = Math.min(N - 1, Math.max(0, dragFromIndex + shift));
@@ -1138,18 +1172,17 @@
     dot.addEventListener("click", () => goToSheet(dot.dataset.sheet));
   });
 
-  // Swiping an empty row (or the header/margins) pages between sheets.
-  // Swiping directly on a task that has text promotes (swipe right) or
-  // demotes (swipe left) that task instead.
-  let swipeX = null, swipeY = null, swiping = false, swipeRow = null, swipeCommitted = false;
+  // A plain swipe on the card always navigates - sideways pages between
+  // sheets, up/down flips the card. Moving a task to another sheet is not
+  // a plain swipe at all: you hold it first (see the drag handler above),
+  // so a quick swipe can never be mistaken for one.
+  let swipeX = null, swipeY = null, swiping = false, swipeCommitted = false;
   card.addEventListener("pointerdown", (e) => {
     if (e.target.closest("button")) return;
     swipeX = e.clientX;
     swipeY = e.clientY;
     swiping = true;
     swipeCommitted = false;
-    const rowEl = e.target.closest(".row");
-    swipeRow = rowEl && rowEl.classList.contains("has-text") ? rowEl : null;
   });
   card.addEventListener("pointermove", (e) => {
     if (reorderDragging) return;
@@ -1169,26 +1202,18 @@
     swiping = false;
     const dx = e.clientX - swipeX;
     const dy = e.clientY - swipeY;
-    // A vertical swipe flips the card to its other side.
+    // A vertical swipe flips the card to its other side, tumbling the
+    // same direction the finger moved.
     if (Math.abs(dy) >= 70 && Math.abs(dy) > Math.abs(dx)) {
-      toggleFlip();
+      toggleFlip(dy < 0 ? 1 : -1);
       return;
     }
     if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    // A normal swipe pages the sheet even if it started on a task with
-    // text - only a longer, more deliberate drag promotes/demotes it, so
-    // a casual "just paging through" swipe never gets mistaken for one.
-    if (swipeRow && Math.abs(dx) >= 230) {
-      const i = rowEls.indexOf(swipeRow);
-      if (dx > 0) promoteTask(i);
-      else demoteTask(i);
-      return;
-    }
     const idx = SHEETS.indexOf(state.current);
     if (dx < 0 && idx < SHEETS.length - 1) goToSheet(SHEETS[idx + 1]);
     else if (dx > 0 && idx > 0) goToSheet(SHEETS[idx - 1]);
   });
-  card.addEventListener("pointercancel", () => { swiping = false; swipeRow = null; });
+  card.addEventListener("pointercancel", () => { swiping = false; });
 
   function render() {
     const sheet = state[state.current];
@@ -1201,7 +1226,7 @@
     rowEls.forEach((row, i) => {
       const task = sheet.tasks[i];
       row.querySelector("input").value = task.t;
-      row.classList.remove("zap", "promoting", "demoting", "shake");
+      row.classList.remove("zap", "promoting", "demoting", "shake", "will-move");
       row.classList.toggle("done", task.d);
       row.classList.toggle("has-text", task.t.length > 0);
       const promoteBtn = row.querySelector(".promote");
