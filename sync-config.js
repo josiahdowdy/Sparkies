@@ -13,6 +13,6 @@
 // older "service_role" key here; those are real secrets and would give
 // anyone full access to your database.
 window.SPARKIES_SYNC = {
-  url: "",
-  anonKey: "",
+  url: "https://otqzrfwbmzdsrkahsdhr.supabase.co",
+  anonKey: "sb_publishable_0g8HwbuEukrCDrOJJstlwg_OumKgrG3",
 };
