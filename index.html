@@ -51,12 +51,23 @@
     background: var(--bg);
     font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
     display: flex;
-    flex-direction: column;
-    padding: 10px 10px 4px;
-    gap: 6px;
-    height: 100dvh;
+    align-items: center;
+    justify-content: center;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
+  }
+  /* The whole app, capped to a phone-sized frame and centered - so a
+     wide/tall browser window doesn't stretch the sheet into something
+     unreadable. On an actual phone these caps never kick in. */
+  .app {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 430px;
+    height: 100dvh;
+    max-height: 900px;
+    padding: 10px 10px 4px;
+    gap: 6px;
   }
 
   /* ---------- Stars: flip-to-template, Bible verse, dark mode ---------- */
@@ -621,6 +632,7 @@
 </head>
 <body data-sheet="sparks">
 
+  <div class="app" id="app">
   <div class="card-flip" id="cardFlip">
     <main class="card" id="cardFront">
       <div class="cloud-layer" aria-hidden="true">
@@ -674,6 +686,7 @@
     <button class="pdot" data-sheet="thunderstorm" aria-label="Thunderstorm"></button>
     <span class="count" id="taskCount"></span>
   </nav>
+  </div>
 
   <div class="quote-overlay" id="syncOverlay">
     <div class="quote-card sync-card">
@@ -1254,6 +1267,20 @@
 
   pagerEls.forEach((dot) => {
     dot.addEventListener("click", () => goToSheet(dot.dataset.sheet));
+  });
+
+  // Arrow keys (desktop): left/right pages between sheets, up/down flips
+  // the card - the keyboard equivalent of the swipe gestures above.
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    const idx = SHEETS.indexOf(state.current);
+    if (e.key === "ArrowRight") { if (idx < SHEETS.length - 1) goToSheet(SHEETS[idx + 1]); }
+    else if (e.key === "ArrowLeft") { if (idx > 0) goToSheet(SHEETS[idx - 1]); }
+    else if (e.key === "ArrowUp") toggleFlip(1);
+    else if (e.key === "ArrowDown") toggleFlip(-1);
+    else return;
+    e.preventDefault();
   });
 
   // A plain swipe on the card always navigates - sideways pages between
