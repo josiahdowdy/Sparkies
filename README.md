@@ -24,6 +24,10 @@ Long-press a sheet's title to rename it — your name is saved and used everywhe
 - Three stars sit under the date: flip the card to write a daily template, get a random verse or quote, or toggle dark mode.
 - Everything saves automatically in your browser (localStorage), so your tasks are still there when you come back.
 
+## Syncing across devices
+
+Off by default — the app is local-only until you turn it on. To have the same lists on your phone and computer, follow [SYNC-SETUP.md](SYNC-SETUP.md) (about 10 minutes, free). Once it's set up, a **Sync** chip appears in the bottom left: sign in with an emailed link on each device and they stay in step. Your tasks, templates, Treasures, and renamed sheets sync; which sheet you're on and dark mode stay per-device.
+
 ## Hosting
 
 Deployed to GitHub Pages automatically by `.github/workflows/pages.yml` on every push to `main`.
