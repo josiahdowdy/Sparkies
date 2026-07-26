@@ -528,6 +528,73 @@
     letter-spacing: .05em;
   }
 
+  /* ---------- Sync ---------- */
+  .sync-chip {
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: none;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: .04em;
+    color: #a89f8a;
+  }
+  .sync-chip.visible { display: flex; }
+  .sync-chip .bead {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid #b7ae99;
+    background: transparent;
+  }
+  .sync-chip.on .bead { background: var(--gold); border-color: var(--gold); }
+  .sync-chip.busy .bead { animation: beadPulse 1s ease-in-out infinite; }
+  @keyframes beadPulse { 50% { opacity: .3; } }
+
+  .sync-card { text-align: left; }
+  .sync-card h2 {
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: .06em;
+    margin-bottom: 10px;
+  }
+  .sync-card p {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .sync-card input {
+    width: 100%;
+    font: inherit;
+    font-size: 15px;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid var(--line);
+    padding: 6px 2px;
+    outline: none;
+    margin-bottom: 16px;
+  }
+  .sync-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .sync-actions button {
+    font: inherit;
+    font-size: 13px;
+    letter-spacing: .04em;
+    background: none;
+    border: none;
+    padding: 6px 2px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .sync-actions button.primary { color: var(--ink); font-weight: 600; }
+
   /* ---------- Drag to reorder ---------- */
   .row.dragging {
     transition: none;
@@ -591,17 +658,34 @@
   </div>
 
   <nav class="pager" id="pager">
+    <button class="sync-chip" id="syncChip" type="button" aria-label="Sync">
+      <span class="bead"></span><span id="syncChipText">Sync</span>
+    </button>
     <button class="pdot" data-sheet="sparks" aria-label="Sparks"></button>
     <button class="pdot" data-sheet="lightning" aria-label="Lightning"></button>
     <button class="pdot" data-sheet="thunderstorm" aria-label="Thunderstorm"></button>
     <span class="count" id="taskCount"></span>
   </nav>
 
+  <div class="quote-overlay" id="syncOverlay">
+    <div class="quote-card sync-card">
+      <h2 id="syncTitle">Sync</h2>
+      <p id="syncBody"></p>
+      <input type="email" id="syncEmail" placeholder="you@example.com"
+             autocomplete="email" autocapitalize="off" spellcheck="false">
+      <div class="sync-actions">
+        <button type="button" id="syncCancel">Close</button>
+        <button type="button" class="primary" id="syncGo">Send link</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="undoToast">
     <span id="undoText"></span>
     <button id="undoBtn" type="button">Undo</button>
   </div>
 
+<script src="sync-config.js"></script>
 <script>
 (() => {
   const SHEETS = ["sparks", "lightning", "thunderstorm"];
@@ -637,7 +721,13 @@
   }
   if (!("dark" in state)) state.dark = false;
 
-  const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+  // Set by the sync layer further down, when it's configured and signed in.
+  let onLocalChange = null;
+  const save = () => {
+    state.updatedAt = Date.now();
+    localStorage.setItem(KEY, JSON.stringify(state));
+    if (onLocalChange) onLocalChange();
+  };
 
   // ---------- Dark mode (right star) ----------
   const starDarkEl = document.getElementById("starDark");
@@ -1245,6 +1335,203 @@
     document.getElementById("taskCount").textContent =
       sheet.tasks.filter((t) => t.t).length + "/" + N;
   }
+
+  // ---------- Sync across devices (optional; see SYNC-SETUP.md) ----------
+  // Only the content syncs - which sheet you're looking at and whether
+  // you're in dark mode stay per-device, so your phone doesn't jump
+  // around because of something you did on your laptop.
+  (function initSync() {
+    const cfg = window.SPARKIES_SYNC || {};
+    const chipEl = document.getElementById("syncChip");
+    const chipTextEl = document.getElementById("syncChipText");
+    const overlayEl = document.getElementById("syncOverlay");
+    const titleEl2 = document.getElementById("syncTitle");
+    const bodyEl = document.getElementById("syncBody");
+    const emailEl = document.getElementById("syncEmail");
+    const goEl = document.getElementById("syncGo");
+    const cancelEl = document.getElementById("syncCancel");
+
+    if (!cfg.url || !cfg.anonKey) return; // not set up: stays offline-only
+    chipEl.classList.add("visible");
+
+    const TABLE = "sparkies_state";
+    let client = null, userId = null, userEmail = "", pushTimer = null, pending = false;
+
+    function setChip(status, text) {
+      chipEl.classList.toggle("on", status === "on");
+      chipEl.classList.toggle("busy", status === "busy");
+      chipTextEl.textContent = text;
+    }
+
+    function loadLib() {
+      if (window.supabase) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "vendor/supabase.js";
+        s.onload = resolve;
+        s.onerror = () => reject(new Error("Could not load the sync library"));
+        document.head.appendChild(s);
+      });
+    }
+
+    const contentOf = () => ({
+      sparks: state.sparks,
+      lightning: state.lightning,
+      thunderstorm: state.thunderstorm,
+      names: state.names,
+      updatedAt: state.updatedAt || 0,
+    });
+
+    // Re-commit whatever the user is actively typing, so a remote update
+    // landing mid-keystroke never yanks the text out from under them.
+    function applyRemote(data) {
+      const active = document.activeElement;
+      const row = active && active.tagName === "INPUT" ? active.closest(".row") : null;
+      const keep = row ? { el: active, val: active.value, s: active.selectionStart, e: active.selectionEnd } : null;
+
+      for (const s of SHEETS) if (data[s]) state[s] = data[s];
+      if (data.names) state.names = data.names;
+      state.updatedAt = data.updatedAt || Date.now();
+      localStorage.setItem(KEY, JSON.stringify(state));
+      render();
+
+      if (keep) {
+        const i = rowEls.indexOf(row);
+        if (i !== -1) state[state.current].tasks[i].t = keep.val;
+        else {
+          const j = templateInputs.indexOf(keep.el);
+          if (j !== -1) state[state.current][backField()][j] = keep.val;
+        }
+        keep.el.value = keep.val;
+        keep.el.focus();
+        try { keep.el.setSelectionRange(keep.s, keep.e); } catch (_) {}
+        schedulePush();
+      }
+    }
+
+    async function pull() {
+      if (!userId) return;
+      try {
+        const { data, error } = await client
+          .from(TABLE).select("data").eq("user_id", userId).maybeSingle();
+        if (error) throw error;
+        if (data && data.data && (data.data.updatedAt || 0) > (state.updatedAt || 0)) {
+          applyRemote(data.data);
+        }
+        setChip("on", "Synced");
+      } catch (_) {
+        setChip("", "Offline");
+      }
+    }
+
+    async function push() {
+      if (!userId) return;
+      setChip("busy", "Syncing");
+      try {
+        const { error } = await client.from(TABLE)
+          .upsert({ user_id: userId, data: contentOf(), updated_at: new Date().toISOString() });
+        if (error) throw error;
+        pending = false;
+        setChip("on", "Synced");
+      } catch (_) {
+        pending = true;
+        setChip("", "Offline");
+      }
+    }
+
+    function schedulePush() {
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(push, 800);
+    }
+
+    let wired = false;
+    async function signedIn(session) {
+      const already = userId === session.user.id;
+      userId = session.user.id;
+      userEmail = session.user.email || "";
+      onLocalChange = schedulePush;
+      setChip("on", "Synced");
+      if (already) return; // token refresh, not a new sign-in
+      await pull();
+      // Local edits made while signed out still belong to you - send them up.
+      if ((state.updatedAt || 0) > 0) schedulePush();
+      client.channel("sparkies")
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: TABLE, filter: "user_id=eq." + userId },
+            (payload) => { if (payload.new && payload.new.data) applyRemote(payload.new.data); })
+        .subscribe();
+      if (!wired) {
+        wired = true;
+        document.addEventListener("visibilitychange", () => {
+          if (!userId || document.visibilityState !== "visible") return;
+          if (pending) push(); else pull();
+        });
+      }
+    }
+
+    function signedOut() {
+      userId = null;
+      userEmail = "";
+      onLocalChange = null;
+      setChip("", "Sync");
+    }
+
+    function openPanel() {
+      const on = !!userId;
+      titleEl2.textContent = on ? "Synced" : "Sync";
+      bodyEl.textContent = on
+        ? "Signed in as " + userEmail + ". Your lists follow you to any device you sign in on."
+        : "Enter your email and we'll send a sign-in link. Open it on each device you want in sync — no password needed.";
+      // Reset anything the "link sent" state hid, so reopening is clean.
+      emailEl.style.display = on ? "none" : "";
+      goEl.style.display = "";
+      goEl.disabled = false;
+      goEl.textContent = on ? "Sign out" : "Send link";
+      overlayEl.classList.add("show");
+      if (!on) setTimeout(() => emailEl.focus(), 50);
+    }
+    const closePanel = () => overlayEl.classList.remove("show");
+
+    chipEl.addEventListener("click", openPanel);
+    cancelEl.addEventListener("click", closePanel);
+    overlayEl.addEventListener("click", (e) => { if (e.target === overlayEl) closePanel(); });
+    emailEl.addEventListener("keydown", (e) => { if (e.key === "Enter") goEl.click(); });
+
+    goEl.addEventListener("click", async () => {
+      if (userId) {
+        await client.auth.signOut();
+        closePanel();
+        return;
+      }
+      const email = emailEl.value.trim();
+      if (!email) return;
+      goEl.disabled = true;
+      try {
+        const { error } = await client.auth.signInWithOtp({
+          email, options: { emailRedirectTo: location.href.split("#")[0] },
+        });
+        if (error) throw error;
+        bodyEl.textContent = "Check " + email + " for the link. Open it on this device to finish.";
+        emailEl.style.display = "none";
+        goEl.style.display = "none";
+      } catch (err) {
+        bodyEl.textContent = "Couldn't send it: " + (err && err.message ? err.message : "unknown error");
+      } finally {
+        goEl.disabled = false;
+      }
+    });
+
+    loadLib().then(async () => {
+      client = window.supabase.createClient(cfg.url, cfg.anonKey);
+      client.auth.onAuthStateChange((event, session) => {
+        if (session) signedIn(session);
+        else signedOut();
+      });
+      const { data } = await client.auth.getSession();
+      if (data && data.session) signedIn(data.session);
+      else signedOut();
+    }).catch(() => setChip("", "Offline"));
+  })();
 
   render();
 })();
