@@ -1543,14 +1543,29 @@
     });
 
     loadLib().then(async () => {
-      client = window.supabase.createClient(cfg.url, cfg.anonKey);
+      // PKCE puts the sign-in token in the URL's ?query string instead of
+      // its #fragment. Some mail apps show an interstitial page (or run
+      // their own link-scan) before handing off to the real browser, and
+      // that hop can silently drop a #fragment while a ?query survives -
+      // so PKCE is what keeps the emailed link working in practice.
+      client = window.supabase.createClient(cfg.url, cfg.anonKey, {
+        auth: { flowType: "pkce" },
+      });
       client.auth.onAuthStateChange((event, session) => {
         if (session) signedIn(session);
         else signedOut();
       });
+      const params = new URLSearchParams(location.search);
+      const authError = params.get("error_description") || params.get("error");
       const { data } = await client.auth.getSession();
       if (data && data.session) signedIn(data.session);
-      else signedOut();
+      else {
+        signedOut();
+        if (authError) {
+          openPanel();
+          bodyEl.textContent = "That link didn't work (" + authError + "). Send a new one.";
+        }
+      }
     }).catch(() => setChip("", "Offline"));
   })();
 
