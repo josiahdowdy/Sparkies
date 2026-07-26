@@ -46,24 +46,27 @@ their own empty row — never yours.
 In Supabase go to **Project Settings → API**. You need:
 
 - **Project URL** — looks like `https://abcdefgh.supabase.co`
-- **anon public** key — a long string starting with `eyJ...`
+- **Publishable** key — a string starting with `sb_publishable_...`
+  (older projects instead show a **legacy anon public** key, a long
+  string starting with `eyJ...` — that still works the same way here)
 
 Put them in `sync-config.js` in this repo:
 
 ```js
 window.SPARKIES_SYNC = {
   url: "https://abcdefgh.supabase.co",
-  anonKey: "eyJhbGciOi...",
+  anonKey: "sb_publishable_...",
 };
 ```
 
 Commit and push. Once it deploys, a **Sync** chip appears in the bottom
 left of the app.
 
-> ⚠️ Use the **anon public** key, not `service_role`. The anon key is
-> meant to be public and is useless without signing in. The
-> `service_role` key bypasses all the security rules — never put that one
-> in this file or anywhere in this repo.
+> ⚠️ Use the **Publishable** (or legacy **anon public**) key, never the
+> **Secret** key (`sb_secret_...`, or legacy `service_role`). The
+> publishable/anon key is meant to be public and is useless without
+> signing in. The secret/service_role key bypasses all the security
+> rules — never put that one in this file or anywhere in this repo.
 
 ## 4. Sign in on each device
 
