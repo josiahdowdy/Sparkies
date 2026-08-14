@@ -528,7 +528,118 @@
     letter-spacing: .05em;
   }
 
-  /* ---------- Sync ---------- */
+  /* ---------- Task detail / notes sheet ---------- */
+  .notes-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 16, 10, .5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease;
+    z-index: 70;
+  }
+  .notes-overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .notes-sheet {
+    background: var(--paper);
+    color: var(--ink);
+    border-radius: 20px;
+    width: 100%;
+    max-width: 380px;
+    max-height: 80vh;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .32);
+    display: flex;
+    flex-direction: column;
+    transform: scale(.95);
+    transition: transform .25s ease;
+  }
+  .notes-overlay.show .notes-sheet { transform: scale(1); }
+  .notes-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px 12px;
+    border-bottom: 1.5px solid var(--line);
+  }
+  .notes-header h3 {
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: .06em;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 260px;
+  }
+  .notes-back {
+    background: none;
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: .04em;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .notes-back:active { color: var(--gold); }
+  .notes-body {
+    flex: 1;
+    padding: 14px 20px 18px;
+    min-height: 0;
+  }
+  .notes-textarea {
+    width: 100%;
+    height: 200px;
+    resize: none;
+    border: none;
+    outline: none;
+    background: transparent;
+    font: inherit;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink);
+    padding: 0;
+    user-select: text;
+  }
+  .notes-textarea::placeholder { color: var(--muted); opacity: .6; }
+  .notes-footer {
+    padding: 0 20px 18px;
+    text-align: right;
+  }
+  .notes-save-hint {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .04em;
+  }
+  /* visual indicator on signal when notes exist */
+  .signal.has-notes::after {
+    content: "";
+    position: absolute;
+    right: -3px;
+    top: -3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--gold);
+    border: 1.5px solid var(--paper);
+    box-shadow: 0 0 3px rgba(247, 201, 72, .5);
+  }
+  .row.done .signal.has-notes::after {
+    background: var(--paper);
+    border-color: var(--muted);
+    box-shadow: none;
+  }
+
+
   .sync-chip {
     position: absolute;
     left: 2px;
@@ -650,6 +761,25 @@
     </div>
   </div>
 
+  <!-- Task notes detail sheet -->
+  <div class="notes-overlay" id="notesOverlay">
+    <div class="notes-sheet">
+      <div class="notes-header">
+        <button class="notes-back" id="notesBack" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+          Back
+        </button>
+        <h3 id="notesTitle">Task</h3>
+      </div>
+      <div class="notes-body">
+        <textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes, details, links…" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+      </div>
+      <div class="notes-footer">
+        <span class="notes-save-hint">Saved automatically</span>
+      </div>
+    </div>
+  </div>
+
   <div class="quote-overlay" id="quoteOverlay">
     <div class="quote-card">
       <p class="quote-text" id="quoteText"></p>
@@ -699,7 +829,7 @@
   const makeSheet = (template) => {
     const tmpl = template ? template.slice() : Array.from({ length: N }, () => "");
     return {
-      tasks: tmpl.map((t) => ({ t: t || "", d: false })),
+      tasks: tmpl.map((t) => ({ t: t || "", d: false, notes: "" })),
       template: tmpl,
     };
   };
@@ -720,6 +850,16 @@
     }
   }
   if (!("dark" in state)) state.dark = false;
+
+  // Migrate tasks that predate the notes field
+  for (const s of SHEETS) {
+    const sheet = state[s];
+    if (sheet && sheet.tasks) {
+      for (const task of sheet.tasks) {
+        if (typeof task.notes !== "string") task.notes = "";
+      }
+    }
+  }
 
   // Set by the sync layer further down, when it's configured and signed in.
   let onLocalChange = null;
@@ -788,6 +928,45 @@
   quoteOverlayEl.addEventListener("click", () => {
     quoteOverlayEl.classList.remove("show");
   });
+
+  // ---------- Notes detail sheet ----------
+  const notesOverlayEl = document.getElementById("notesOverlay");
+  const notesTitleEl = document.getElementById("notesTitle");
+  const notesTextareaEl = document.getElementById("notesTextarea");
+  const notesBackEl = document.getElementById("notesBack");
+  let notesTaskIndex = -1;
+
+  function openNotes(taskIndex) {
+    notesTaskIndex = taskIndex;
+    const task = state[state.current].tasks[taskIndex];
+    notesTitleEl.textContent = task.t || "Task";
+    notesTextareaEl.value = task.notes || "";
+    notesOverlayEl.classList.add("show");
+    setTimeout(() => notesTextareaEl.focus(), 50);
+  }
+  function closeNotes() {
+    notesOverlayEl.classList.remove("show");
+    notesTaskIndex = -1;
+  }
+  notesBackEl.addEventListener("click", closeNotes);
+  notesOverlayEl.addEventListener("click", (e) => {
+    if (e.target === notesOverlayEl) closeNotes();
+  });
+  notesTextareaEl.addEventListener("input", () => {
+    if (notesTaskIndex === -1) return;
+    state[state.current].tasks[notesTaskIndex].notes = notesTextareaEl.value;
+    save();
+    renderNotesIndicator(notesTaskIndex);
+  });
+  notesTextareaEl.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeNotes();
+  });
+  function renderNotesIndicator(i) {
+    const row = rowEls[i];
+    if (!row) return;
+    const task = state[state.current].tasks[i];
+    row.querySelector(".signal").classList.toggle("has-notes", !!task.notes);
+  }
 
   // ---------- Undo toast for destructive clears ----------
   const undoToastEl = document.getElementById("undoToast");
@@ -919,20 +1098,43 @@
 
     row.querySelector(".promote").addEventListener("click", () => promoteTask(i));
 
-    row.querySelector(".signal").addEventListener("click", () => {
-      const task = state[state.current].tasks[i];
-      if (!task.d) {
-        task.d = true;
-        save();
-        if (navigator.vibrate) navigator.vibrate(15);
-        row.classList.add("zap");
-        setTimeout(() => { row.classList.remove("zap"); row.classList.add("done"); }, 460);
-      } else {
-        task.d = false;
-        save();
-        row.classList.remove("done", "zap");
+    // Signal: short-press toggles done, long-press opens notes (only for filled tasks)
+    const signalEl = row.querySelector(".signal");
+    let sigTimer = null, sigDownX = 0, sigDownY = 0, sigLongPressed = false;
+    signalEl.addEventListener("pointerdown", (e) => {
+      sigDownX = e.clientX;
+      sigDownY = e.clientY;
+      sigLongPressed = false;
+      clearTimeout(sigTimer);
+      sigTimer = setTimeout(() => {
+        sigLongPressed = true;
+        const task = state[state.current].tasks[i];
+        if (task.t) openNotes(i);
+      }, 500);
+    });
+    signalEl.addEventListener("pointermove", (e) => {
+      if (Math.abs(e.clientX - sigDownX) > 10 || Math.abs(e.clientY - sigDownY) > 10) {
+        clearTimeout(sigTimer);
       }
     });
+    signalEl.addEventListener("pointerup", () => {
+      clearTimeout(sigTimer);
+      if (!sigLongPressed) {
+        const task = state[state.current].tasks[i];
+        if (!task.d) {
+          task.d = true;
+          save();
+          if (navigator.vibrate) navigator.vibrate(15);
+          row.classList.add("zap");
+          setTimeout(() => { row.classList.remove("zap"); row.classList.add("done"); }, 460);
+        } else {
+          task.d = false;
+          save();
+          row.classList.remove("done", "zap");
+        }
+      }
+    });
+    signalEl.addEventListener("pointercancel", () => clearTimeout(sigTimer));
   }
 
   // ---------- Back of the card: daily/weekly template, or Life's Treasures ----------
@@ -1022,9 +1224,10 @@
     }
     row.classList.add("promoting");
     setTimeout(() => {
-      target.tasks[slot] = { t: task.t, d: false };
+      target.tasks[slot] = { t: task.t, d: false, notes: task.notes };
       task.t = "";
       task.d = false;
+      task.notes = "";
       save();
       render();
     }, 200);
@@ -1048,9 +1251,10 @@
     }
     row.classList.add("demoting");
     setTimeout(() => {
-      target.tasks[slot] = { t: task.t, d: false };
+      target.tasks[slot] = { t: task.t, d: false, notes: task.notes };
       task.t = "";
       task.d = false;
+      task.notes = "";
       save();
       render();
     }, 200);
@@ -1184,7 +1388,7 @@
     const key = state.current;
     const name = state.names[key];
     sheet.tasks.forEach((t) => {
-      if (t.d) { t.t = ""; t.d = false; }
+      if (t.d) { t.t = ""; t.d = false; t.notes = ""; }
     });
     save();
     render();
@@ -1319,6 +1523,7 @@
       row.classList.remove("zap", "promoting", "demoting", "shake", "will-move");
       row.classList.toggle("done", task.d);
       row.classList.toggle("has-text", task.t.length > 0);
+      row.querySelector(".signal").classList.toggle("has-notes", !!task.notes);
       const promoteBtn = row.querySelector(".promote");
       promoteBtn.title = idx > 0 ? "Send to " + state.names[SHEETS[idx - 1]] : "";
     });
